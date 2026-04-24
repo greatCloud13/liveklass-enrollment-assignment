@@ -2,6 +2,7 @@ package com.example.enrollment.domain.course;
 
 import com.example.enrollment.common.exception.CourseNotOpenException;
 import com.example.enrollment.common.exception.EnrollmentCapacityExceededException;
+import com.example.enrollment.common.exception.InvalidAccessException;
 import com.example.enrollment.common.exception.InvalidStatusTransitionException;
 import com.example.enrollment.domain.BaseEntity;
 import jakarta.persistence.*;
@@ -77,6 +78,12 @@ public class Course extends BaseEntity {
         // maxCapacity가 null이면 무제한 — 정원 검증 생략
         if (this.maxCapacity != null && currentCount >= this.maxCapacity) {
             throw new EnrollmentCapacityExceededException();
+        }
+    }
+
+    public void validateOwnership(Long instructorId){
+        if(!this.instructorId.equals(instructorId)){
+            throw new InvalidAccessException();
         }
     }
 
