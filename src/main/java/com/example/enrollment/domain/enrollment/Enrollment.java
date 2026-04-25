@@ -77,9 +77,9 @@ public class Enrollment extends BaseEntity {
     }
 
     public boolean isCancellable() {
-        // 결제 확정 후 7일 이내만 취소 가능
+        // 결제 확정 후 7일 후 당일을 포함하여 취소 가능
         return confirmedAt != null &&
-                LocalDateTime.now().isBefore(confirmedAt.plusDays(7));
+                !LocalDateTime.now().isAfter(confirmedAt.plusDays(7));
     }
 
 }
