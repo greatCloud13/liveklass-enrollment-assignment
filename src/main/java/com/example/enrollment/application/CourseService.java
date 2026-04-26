@@ -5,6 +5,8 @@ import com.example.enrollment.common.exception.InvalidCoursePeriodException;
 import com.example.enrollment.domain.course.Course;
 import com.example.enrollment.domain.course.CourseRepository;
 import com.example.enrollment.domain.course.CourseStatus;
+import com.example.enrollment.domain.enrollment.EnrollmentRepository;
+import com.example.enrollment.domain.enrollment.EnrollmentStatus;
 import com.example.enrollment.presentation.dto.request.CreateCourseRequest;
 import com.example.enrollment.presentation.dto.response.CourseDetailResponse;
 import com.example.enrollment.presentation.dto.response.CourseResponse;
@@ -14,12 +16,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class CourseService {
 
     private final CourseRepository courseRepository;
+    private final EnrollmentRepository enrollmentRepository;
 
     /**
      * 강의를 생성합니다. 초기 상태는 DRAFT이며 OPEN 전환 후 수강 신청이 가능합니다.
@@ -69,8 +74,9 @@ public class CourseService {
 
         course.close();
 
-//      #todo 수강신청 인원 계산 기능 구현이 되어 있지 않으므로 하드 코딩 구현 완료시 수정 필요
-        int currentEnrollmentCount = 10;
+        int currentEnrollmentCount = enrollmentRepository.countByCourseIdAndStatusIn(
+                courseId,
+                List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED));
 
         return CourseDetailResponse.from(course, currentEnrollmentCount);
     }
@@ -91,8 +97,9 @@ public class CourseService {
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(CourseNotFoundException :: new);
 
-//      #todo 수강신청 인원 계산 기능 구현이 되어 있지 않으므로 하드 코딩 구현 완료시 수정 필요
-        int currentEnrollmentCount = 10;
+        int currentEnrollmentCount = enrollmentRepository.countByCourseIdAndStatusIn(
+                courseId,
+                List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED));
 
         return CourseDetailResponse.from(course, currentEnrollmentCount);
     }
