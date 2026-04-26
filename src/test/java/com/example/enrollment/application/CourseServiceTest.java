@@ -7,6 +7,8 @@ import com.example.enrollment.common.exception.InvalidStatusTransitionException;
 import com.example.enrollment.domain.course.Course;
 import com.example.enrollment.domain.course.CourseRepository;
 import com.example.enrollment.domain.course.CourseStatus;
+import com.example.enrollment.domain.enrollment.EnrollmentRepository;
+import com.example.enrollment.domain.enrollment.EnrollmentStatus;
 import com.example.enrollment.presentation.dto.request.CreateCourseRequest;
 import com.example.enrollment.presentation.dto.response.CourseDetailResponse;
 import com.example.enrollment.presentation.dto.response.CourseResponse;
@@ -55,6 +57,9 @@ public class CourseServiceTest {
     @Mock
     private CourseRepository courseRepository;
 
+    @Mock
+    private EnrollmentRepository enrollmentRepository;
+
     private final Long instructorId = 1L;
     private final Long invalidInstructorId = 99L;
     private final Long courseId = 50L;
@@ -62,8 +67,7 @@ public class CourseServiceTest {
 
     private Course course;
     private CreateCourseRequest createCourseRequest;
-    private CourseDetailResponse courseDetailResponse;
-    private CourseResponse courseResponse;
+
 
     @BeforeEach
     void setUp() {
@@ -87,8 +91,6 @@ public class CourseServiceTest {
                 .maxCapacity(500)
                 .build();
 
-        courseDetailResponse = CourseDetailResponse.from(course, 0);
-        courseResponse = CourseResponse.from(course);
     }
 
     @Nested
@@ -196,7 +198,6 @@ public class CourseServiceTest {
         }
     }
 
-//  #todo 수강신청 인원 계산 기능 구현시 기능 추가 후 하드코딩된 파라미터 교체 및 테스트 수정 필요
     @Nested
     @DisplayName("closeCourse() 기능 테스트")
     class closeCourseTest{
@@ -222,7 +223,6 @@ public class CourseServiceTest {
             assertThatThrownBy(()->courseService.closeCourse(1L, emptyCourseId))
                     .isInstanceOf(CourseNotFoundException.class)
                     .hasMessage("해당하는 강의를 찾을 수 없습니다.");
-
         }
 
         @Test
@@ -310,7 +310,6 @@ public class CourseServiceTest {
 
     }
 
-//  #todo 수강신청 인원 계산 기능 구현시 기능 추가 후 하드코딩된 파라미터 교체 테스트 수정 필요
     @Nested
     @DisplayName("getCourseDetail() 기능 테스트")
     class GetCourseDetailTest {
@@ -320,6 +319,7 @@ public class CourseServiceTest {
         void getCourseDetail_success() {
             // [Given]
             given(courseRepository.findById(courseId)).willReturn(Optional.of(course));
+            given(enrollmentRepository.countByCourseIdAndStatusIn(courseId, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))).willReturn(10);
 
             // [When]
             CourseDetailResponse result = courseService.getCourseDetail(courseId);
@@ -330,7 +330,7 @@ public class CourseServiceTest {
             assertThat(result.description()).isEqualTo(course.getDescription());
             assertThat(result.price()).isEqualTo(course.getPrice());
             assertThat(result.instructorId()).isEqualTo(course.getInstructorId());
-            assertThat(result.currentEnrollmentCount()).isEqualTo(10); // 하드코딩된 값 검증
+            assertThat(result.currentEnrollmentCount()).isEqualTo(10);
 
             verify(courseRepository, times(1)).findById(courseId);
         }
