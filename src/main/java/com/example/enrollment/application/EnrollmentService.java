@@ -76,7 +76,19 @@ public class EnrollmentService {
         Enrollment enrollment = enrollmentRepository.findByIdAndUserId(enrollmentId, userId)
                 .orElseThrow(EnrollmentNotFoundException :: new);
 
+        courseRepository.findByIdWithLock(enrollment.getCourseId());
+
+        boolean spotFreed = enrollment.getStatus() == EnrollmentStatus.PENDING
+                || enrollment.getStatus() == EnrollmentStatus.CONFIRMED;
+
         enrollment.cancel();
+
+        if(spotFreed){
+            enrollmentRepository
+                    .findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(
+                            enrollment.getCourseId(), EnrollmentStatus.WAITING)
+                    .ifPresent(Enrollment::toPending);
+        }
     }
 
     public Page<EnrollmentResponse> getEnrollmentsByUserId(Long userId, Pageable pageable) {

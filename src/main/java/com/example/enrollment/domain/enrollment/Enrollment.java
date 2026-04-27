@@ -70,7 +70,7 @@ public class Enrollment extends BaseEntity {
         this.confirmedAt = LocalDateTime.now();
     }
 
-    public void pending(){
+    public void toPending(){
         if (this.status != EnrollmentStatus.WAITING) {
             throw new InvalidStatusTransitionException(this.status.name(), EnrollmentStatus.PENDING.name());
         }
