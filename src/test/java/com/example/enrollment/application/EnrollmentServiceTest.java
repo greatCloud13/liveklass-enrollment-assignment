@@ -7,6 +7,7 @@ import com.example.enrollment.domain.enrollment.Enrollment;
 import com.example.enrollment.domain.enrollment.EnrollmentRepository;
 import com.example.enrollment.domain.enrollment.EnrollmentStatus;
 import com.example.enrollment.presentation.dto.response.EnrollmentResponse;
+import com.example.enrollment.presentation.dto.response.EnrollmentWithWaitCountResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -344,6 +345,133 @@ public class EnrollmentServiceTest {
             assertThat(result.getContent().get(0).courseId()).isEqualTo(courseId);
 
             verify(enrollmentRepository, times(1)).findByCourseId(courseId, pageable);
+        }
+    }
+
+    @Nested
+    @DisplayName("reserve() 기능 테스트")
+    class ReserveTest {
+
+        @Test
+        @DisplayName("자리가 있는 경우 PENDING으로 생성 성공")
+        void reserve_success_pending() {
+            // [Given]
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(
+                    courseId, userId,
+                    List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED, EnrollmentStatus.WAITING)))
+                    .willReturn(false);
+            given(enrollmentRepository.countByCourseIdAndStatusIn(
+                    courseId, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED)))
+                    .willReturn(29); // 정원 30명, 29명 신청 → 자리 있음
+
+            // [When]
+            EnrollmentWithWaitCountResponse result = enrollmentService.reserve(courseId, userId);
+
+            // [Then]
+            assertThat(result).isNotNull();
+            assertThat(result.status()).isEqualTo(EnrollmentStatus.PENDING);
+            assertThat(result.order()).isEqualTo(0L);
+
+            verify(enrollmentRepository, never()).findMaxWaitlistPositionByCourseId(any());
+            verify(enrollmentRepository, never()).countUserWaitingOrder(any(), any());
+            verify(enrollmentRepository, times(1)).save(any(Enrollment.class));
+        }
+
+        @Test
+        @DisplayName("정원이 꽉 찬 경우 첫 번째 대기자로 WAITING 생성 성공")
+        void reserve_success_waiting_first() {
+            // [Given]
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(
+                    courseId, userId,
+                    List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED, EnrollmentStatus.WAITING)))
+                    .willReturn(false);
+            given(enrollmentRepository.countByCourseIdAndStatusIn(
+                    courseId, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED)))
+                    .willReturn(30); // 정원 30명, 30명 → 꽉 참
+            given(enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId))
+                    .willReturn(Optional.empty()); // 기존 대기자 없음
+            given(enrollmentRepository.countUserWaitingOrder(courseId, 1))
+                    .willReturn(0L);
+
+            // [When]
+            EnrollmentWithWaitCountResponse result = enrollmentService.reserve(courseId, userId);
+
+            // [Then]
+            assertThat(result).isNotNull();
+            assertThat(result.status()).isEqualTo(EnrollmentStatus.WAITING);
+            assertThat(result.order()).isEqualTo(1L);
+
+            verify(enrollmentRepository, times(1)).findMaxWaitlistPositionByCourseId(courseId);
+            verify(enrollmentRepository, times(1)).countUserWaitingOrder(courseId, 1);
+            verify(enrollmentRepository, times(1)).save(any(Enrollment.class));
+        }
+
+        @Test
+        @DisplayName("정원이 꽉 찬 경우 기존 대기열에 추가 성공")
+        void reserve_success_waiting_with_existing() {
+            // [Given]
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(
+                    courseId, userId,
+                    List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED, EnrollmentStatus.WAITING)))
+                    .willReturn(false);
+            given(enrollmentRepository.countByCourseIdAndStatusIn(
+                    courseId, List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED)))
+                    .willReturn(30); // 꽉 참
+            given(enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId))
+                    .willReturn(Optional.of(3)); // 기존 대기자 3명
+            given(enrollmentRepository.countUserWaitingOrder(courseId, 4))
+                    .willReturn(3L); // 내 앞에 3명
+
+            // [When]
+            EnrollmentWithWaitCountResponse result = enrollmentService.reserve(courseId, userId);
+
+            // [Then]
+            assertThat(result).isNotNull();
+            assertThat(result.status()).isEqualTo(EnrollmentStatus.WAITING);
+            assertThat(result.order()).isEqualTo(4L);
+
+            verify(enrollmentRepository, times(1)).findMaxWaitlistPositionByCourseId(courseId);
+            verify(enrollmentRepository, times(1)).countUserWaitingOrder(courseId, 4);
+            verify(enrollmentRepository, times(1)).save(any(Enrollment.class));
+        }
+
+        @Test
+        @DisplayName("강의를 찾지 못한 경우 예외 발생")
+        void reserve_fail_courseNotFound() {
+            // [Given]
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.empty());
+
+            // [When & Then]
+            assertThatThrownBy(() -> enrollmentService.reserve(courseId, userId))
+                    .isInstanceOf(CourseNotFoundException.class)
+                    .hasMessage("해당하는 강의를 찾을 수 없습니다.");
+
+            verify(enrollmentRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("이미 신청한 강의에 중복 신청 시 예외 발생")
+        void reserve_fail_alreadyEnrolled() {
+            // [Given]
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(
+                    courseId, userId,
+                    List.of(EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED, EnrollmentStatus.WAITING)))
+                    .willReturn(true);
+
+            // [When & Then]
+            assertThatThrownBy(() -> enrollmentService.reserve(courseId, userId))
+                    .isInstanceOf(AlreadyEnrolledException.class);
+
+            verify(enrollmentRepository, never()).save(any());
         }
     }
 }
