@@ -53,12 +53,28 @@ public class Enrollment extends BaseEntity {
         this.status = EnrollmentStatus.PENDING;
     }
 
+    public static Enrollment reserve(Long userId, Long courseId, Integer waitlistPosition){
+        Enrollment enrollment = new Enrollment();
+        enrollment.userId = userId;
+        enrollment.courseId = courseId;
+        enrollment.status = EnrollmentStatus.WAITING;
+        enrollment.waitlistPosition = waitlistPosition;
+        return enrollment;
+    }
+
     public void confirm() {
         if (this.status != EnrollmentStatus.PENDING) {
             throw new InvalidStatusTransitionException(this.status.name(), EnrollmentStatus.CONFIRMED.name());
         }
         this.status = EnrollmentStatus.CONFIRMED;
         this.confirmedAt = LocalDateTime.now();
+    }
+
+    public void pending(){
+        if (this.status != EnrollmentStatus.WAITING) {
+            throw new InvalidStatusTransitionException(this.status.name(), EnrollmentStatus.PENDING.name());
+        }
+        this.status = EnrollmentStatus.PENDING;
     }
 
     public void cancel() {
