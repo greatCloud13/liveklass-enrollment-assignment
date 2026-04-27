@@ -1,4 +1,4 @@
-package com.example.enrollment.presentation.dto;
+package com.example.enrollment.presentation;
 
 import com.example.enrollment.application.CourseService;
 import com.example.enrollment.common.exception.*;
