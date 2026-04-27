@@ -375,7 +375,7 @@ public class EnrollmentServiceTest {
             assertThat(result.order()).isEqualTo(0L);
 
             verify(enrollmentRepository, never()).findMaxWaitlistPositionByCourseId(any());
-            verify(enrollmentRepository, never()).countUserWaitingOrder(any(), any());
+            verify(enrollmentRepository, never()).countUserWaitingOrder(any(), any(), any());
             verify(enrollmentRepository, times(1)).save(any(Enrollment.class));
         }
 
@@ -394,7 +394,7 @@ public class EnrollmentServiceTest {
                     .willReturn(30); // 정원 30명, 30명 → 꽉 참
             given(enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId))
                     .willReturn(Optional.empty()); // 기존 대기자 없음
-            given(enrollmentRepository.countUserWaitingOrder(courseId, 1))
+            given(enrollmentRepository.countUserWaitingOrder(courseId, 1, EnrollmentStatus.WAITING))
                     .willReturn(0L);
 
             // [When]
@@ -406,7 +406,7 @@ public class EnrollmentServiceTest {
             assertThat(result.order()).isEqualTo(1L);
 
             verify(enrollmentRepository, times(1)).findMaxWaitlistPositionByCourseId(courseId);
-            verify(enrollmentRepository, times(1)).countUserWaitingOrder(courseId, 1);
+            verify(enrollmentRepository, times(1)).countUserWaitingOrder(courseId, 1, EnrollmentStatus.WAITING);
             verify(enrollmentRepository, times(1)).save(any(Enrollment.class));
         }
 
@@ -425,7 +425,7 @@ public class EnrollmentServiceTest {
                     .willReturn(30); // 꽉 참
             given(enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId))
                     .willReturn(Optional.of(3)); // 기존 대기자 3명
-            given(enrollmentRepository.countUserWaitingOrder(courseId, 4))
+            given(enrollmentRepository.countUserWaitingOrder(courseId, 4, EnrollmentStatus.WAITING))
                     .willReturn(3L); // 내 앞에 3명
 
             // [When]
@@ -437,7 +437,7 @@ public class EnrollmentServiceTest {
             assertThat(result.order()).isEqualTo(4L);
 
             verify(enrollmentRepository, times(1)).findMaxWaitlistPositionByCourseId(courseId);
-            verify(enrollmentRepository, times(1)).countUserWaitingOrder(courseId, 4);
+            verify(enrollmentRepository, times(1)).countUserWaitingOrder(courseId, 4, EnrollmentStatus.WAITING);
             verify(enrollmentRepository, times(1)).save(any(Enrollment.class));
         }
 
