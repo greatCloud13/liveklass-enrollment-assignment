@@ -34,10 +34,10 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
 
     @Query("""
             SELECT COUNT(e) FROM Enrollment e
-            WHERE e.course.id = :courseId
-            AND e.status = WAITING
+            WHERE e.courseId = :courseId
+            AND e.status = :status
             AND e.waitlistPosition < :myPosition
             """)
-    Long countUserWaitingOrder(@Param("courseId")Long courseId, @Param("waitListCount")Integer myPosition);
+    Long countUserWaitingOrder(@Param("courseId")Long courseId, @Param("myPosition")Integer myPosition, @Param("status") EnrollmentStatus status);
 
 }

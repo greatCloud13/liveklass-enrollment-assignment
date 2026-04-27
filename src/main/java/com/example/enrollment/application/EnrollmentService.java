@@ -121,7 +121,7 @@ public class EnrollmentService {
                 : Enrollment.builder().courseId(courseId).userId(userId).build();
 
         Long order = isFull
-                ? enrollmentRepository.countUserWaitingOrder(courseId, waitlistCount + 1) + 1
+                ? enrollmentRepository.countUserWaitingOrder(courseId, waitlistCount + 1, EnrollmentStatus.WAITING) + 1
                 : 0L;
 
         enrollmentRepository.save(enrollment);
