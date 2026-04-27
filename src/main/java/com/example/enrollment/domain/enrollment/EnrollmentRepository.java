@@ -3,6 +3,8 @@ package com.example.enrollment.domain.enrollment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 
 import java.util.List;
@@ -22,5 +24,20 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
     Page<Enrollment> findByUserId(Long userId, Pageable pageable);
 
     Page<Enrollment> findByCourseId(Long courseId, Pageable pageable);
+
+    @Query("""
+            SELECT MAX(e.waitlistPosition) FROM Enrollment e
+            WHERE e.courseId = :courseId AND e.status = 'WAITING'
+            """
+    )
+    Optional<Integer> findMaxWaitlistPositionByCourseId(@Param("courseId")Long courseId);
+
+    @Query("""
+            SELECT COUNT(e) FROM Enrollment e
+            WHERE e.course.id = :courseId
+            AND e.status = WAITING
+            AND e.waitlistPosition < :myPosition
+            """)
+    Long countUserWaitingOrder(@Param("courseId")Long courseId, @Param("waitListCount")Integer myPosition);
 
 }

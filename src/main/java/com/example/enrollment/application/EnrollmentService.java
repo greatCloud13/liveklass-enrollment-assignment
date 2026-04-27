@@ -9,6 +9,7 @@ import com.example.enrollment.domain.enrollment.Enrollment;
 import com.example.enrollment.domain.enrollment.EnrollmentRepository;
 import com.example.enrollment.domain.enrollment.EnrollmentStatus;
 import com.example.enrollment.presentation.dto.response.EnrollmentResponse;
+import com.example.enrollment.presentation.dto.response.EnrollmentWithWaitCountResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -86,5 +87,45 @@ public class EnrollmentService {
     public Page<EnrollmentResponse> getCourseEnrollments(Long courseId, Pageable pageable) {
         return enrollmentRepository.findByCourseId(courseId, pageable)
                 .map(EnrollmentResponse::from);
+    }
+
+    /**
+     * WAITING 상태로 신청 정보를 생성합니다.
+     * (빈자리가 있을 경우 PENDING으로 생성합니다.)
+     */
+    @Transactional
+    public EnrollmentWithWaitCountResponse reserve(Long courseId, Long userId){
+
+        Course course = courseRepository.findByIdWithLock(courseId)
+                .orElseThrow(CourseNotFoundException :: new);
+
+        if(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(
+                course.getId(), userId,
+                List.of(EnrollmentStatus.PENDING,
+                        EnrollmentStatus.CONFIRMED,
+                        EnrollmentStatus.WAITING))){
+            throw new AlreadyEnrolledException();
+        }
+
+
+        boolean isFull = enrollmentRepository.countByCourseIdAndStatusIn(courseId, List.of(
+                EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
+                >= course.getMaxCapacity();
+
+        int waitlistCount = isFull
+                ? enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId).orElse(0)
+                : 0;
+
+        Enrollment enrollment = isFull
+                ? Enrollment.reserve(userId, courseId, waitlistCount + 1)
+                : Enrollment.builder().courseId(courseId).userId(userId).build();
+
+        Long order = isFull
+                ? enrollmentRepository.countUserWaitingOrder(courseId, waitlistCount + 1) + 1
+                : 0L;
+
+        enrollmentRepository.save(enrollment);
+
+        return EnrollmentWithWaitCountResponse.from(enrollment, order);
     }
 }

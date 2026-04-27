@@ -4,6 +4,7 @@ import com.example.enrollment.application.EnrollmentService;
 import com.example.enrollment.common.exception.ErrorResponse;
 import com.example.enrollment.presentation.dto.request.CreateEnrollmentRequest;
 import com.example.enrollment.presentation.dto.response.EnrollmentResponse;
+import com.example.enrollment.presentation.dto.response.EnrollmentWithWaitCountResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.net.URL;
 
 @RestController
 @RequiredArgsConstructor
@@ -107,4 +109,29 @@ public class EnrollmentController {
 
         return ResponseEntity.ok(enrollmentService.getCourseEnrollments(courseId, pageable));
     }
+
+
+    @Operation(summary = "대기열 등록", description = "수강 인원이 가득찼을 경우 대기열 등록을 시도할 수 있습니다. " +
+            "수강 인원이 만원이 아닌 경우 PENDING 상태로 생성됩니다")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "예약 성공, 수강 신청 생성 성공"),
+            @ApiResponse(responseCode = "404", description = "강의를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "중복 신청",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/reserve")
+    public ResponseEntity<EnrollmentWithWaitCountResponse> reserveCourse(@RequestHeader("X-User-Id") Long userId,
+                                                                         @Valid @RequestBody CreateEnrollmentRequest request){
+        EnrollmentWithWaitCountResponse result = enrollmentService.reserve(request.courseId(), userId);
+
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentContextPath()
+                .path("/api/v1/enrollments/{id}")
+                .buildAndExpand(result.id())
+                .toUri();
+
+        return ResponseEntity.created(location).body(result);
+    }
+
 }
