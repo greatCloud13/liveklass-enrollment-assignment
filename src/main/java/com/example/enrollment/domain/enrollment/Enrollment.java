@@ -17,8 +17,10 @@ import java.time.LocalDateTime;
 @Table(
         name="enrollment",
         indexes = {
-                @Index(name = "idx_enrollment_course_id", columnList = "course_id"),
-                @Index(name = "idx_enrollment_user_id", columnList = "user_id")
+                @Index(name = "idx_enrollment_course_status_position",
+                        columnList = "course_id, status, waitlist_position"),
+                @Index(name = "idx_enrollment_user_id",
+                        columnList = "user_id")
         })
 @NoArgsConstructor(access = AccessLevel.PROTECTED)  // 외부 직접 생성 방지
 public class Enrollment extends BaseEntity {

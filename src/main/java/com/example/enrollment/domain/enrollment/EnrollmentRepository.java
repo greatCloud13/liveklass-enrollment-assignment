@@ -27,8 +27,6 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
 
     Optional<Enrollment> findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(Long courseId, EnrollmentStatus status);
 
-    Page<Enrollment> findByUserIdAndStatus(Long userId, EnrollmentStatus status, Pageable pageable);
-
     @Query("""
             SELECT MAX(e.waitlistPosition) FROM Enrollment e
             WHERE e.courseId = :courseId AND e.status = 'WAITING'
