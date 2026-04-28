@@ -4,7 +4,7 @@
 
 크리에이터(강사)가 강의를 개설하고, 수강생이 원하는 강의에 신청·결제·취소할 수 있는 수강 신청 시스템입니다.
 
-**구현 사항**
+**기본 구현 사항**
 
 - 강의 상태 관리 (`DRAFT` → `OPEN` → `CLOSED`)
 - 수강 신청 상태 흐름 (`PENDING` → `CONFIRMED` → `CANCELLED`)
@@ -67,7 +67,7 @@ User 인증·인가는 외부 서비스에서 처리된다고 가정합니다.
 
 **취소 정책**
 
-수강 취소는 결제 확정(`CONFIRMED`) 후 7일 이내에만 가능합니다. 이후 취소 시도는 예외를 반환합니다.
+수강 취소는 결제 확정(`CONFIRMED`) 후 7일 이내에만 가능합니다.(7일째되는 당일을 포함합니다.) 이후 취소 시도는 예외를 반환합니다.
 
 
 **중복 신청**
@@ -77,7 +77,17 @@ User 인증·인가는 외부 서비스에서 처리된다고 가정합니다.
 
 **정원 계산**
 
-현재 신청 인원은 `PENDING` + `CONFIRMED` 상태의 Enrollment 수를 기준으로 계산합니다.
+현재 신청 인원은 `PENDING` + `CONFIRMED` 상태의 `Enrollment` 수를 기준으로 계산합니다.
+
+
+**대기 리스트**
+
+수강 인원이 가득찬 상태에서는 등록 요청을 거부하도록 설계 하였습니다. 그렇기에 예약 API를 추가하였으며 `ENROLLMENT.STATUS`의 `WAITING` 상태를 추가하고 대기열 시스템을 구현하였습니다.
+
+ 
+**대기자 자동 `PENDING` 상태 변경**
+
+수강 인원이 가득찬 강의에서 `CANCEL`이 발생하였을 경우 가장 빠른 대기열 번호를 가진 수강 신청을 `PENDING` 상태로 변환합니다.
 
 ---
 
@@ -85,6 +95,8 @@ User 인증·인가는 외부 서비스에서 처리된다고 가정합니다.
 
 `presentation` → `application` → `domain` → `infrastructure` 4계층으로 구성합니다. 
 비즈니스 규칙(상태 전이, 정원 검증, 취소 가능 여부)은 Service가 아닌 도메인 메서드 안에 위치합니다.
+비즈니스 규칙을 도메인 메서드 안에 위치하도록 한 이유는 검증 규칙의 경우 Service 레이어 각 메서드별로 위치시 반복 작성되는 코드가 증가하고 이 과정 중 빠뜨릴 수 있는
+규칙이 있을 수 있기 때문에 도메인 메서드 내부에 위치하였으며 재사용을 통한 동일한 규칙이 적용되도록 보장할 수 있습니다.
 
 ### Pessimistic Lock 선택 이유
 
@@ -102,16 +114,59 @@ Flow: `Course` 행 잠금 → 현재 신청 인원 COUNT → 정원 검증 → `
 MySQL `ENUM` 타입은 값 추가 시 DDL 변경이 필요합니다. 
 `VARCHAR(20)`으로 관리하며 Application Layer에서 상태 Enum을 통해 관리합니다.
 
+### 인덱스 설계
+인덱스의 설계 기준은 카디널리티가 높으며 조회 활용도가 높고 수정빈도와 무관하게 조회 이득이 클 경우의 컬럼들을 설정하였습니다
+
+1. ```idx_enrollment_user_id (userId)``` 
+userId는 카디널리티가 높은 컬럼이며 수정 빈도가 낮으며
+사용자별 enrollment 조회기능이 잦으므로 추가하였습니다.
+
+2. ```idx_course_status (status)```
+status는 카디널리티가 높진 않지만 수정빈도가 낮으며
+상태별 조회 성능에 크게 영향을 주기 때문에 추가하였습니다
+
+3. ```INDEX idx_enrollment_course_status_position (course_id, status, waitlist_position)```
+```
+-- countByCourseIdAndStatusIn (정원 체크)
+WHERE course_id = ? AND status IN (...)
+
+-- countUserWaitingOrder (순번 계산)
+WHERE course_id = ? AND status = 'WAITING' AND waitlist_position < ?
+
+-- findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc (대기열 승격)
+WHERE course_id = ? AND status = 'WAITING' ORDER BY waitlist_position ASC
+
+-- findMaxWaitlistPositionByCourseId
+WHERE course_id = ? → MAX(waitlist_position)
+```
+4가지의 조회 쿼리를 커버할 수 있으며
+
+기능들의 구조상 조회보다 상태 변경이 잦은 구조기에 인덱스 갱신이 잦기에 갱신에 대한 비용이 증가하지만
+정원 체크, 대기열 순번 계산이 수강 신청, 취소, 예약 기능 동작시 항상 실행되는 쿼리이며 해당 기능들은 비관적 락이 적용되어 있으므로
+빠른 조회가 필요하다고 판단하여 추가하였습니다.
+
+### waitlistPosition을 순번으로 직접 노출하지 않고 COUNT를 통해 순번을 계산합니다.
+waitlistPosition 재정렬을 수행하지 않습니다.
+재정렬은 대기자 전체에 대한 UPDATE가 발생하여 비용이 크기 때문에
+순서 불일치를 허용하고 실제 순번은 INDEX를 활용한 COUNT 쿼리로 동적 계산합니다.
+
 ---
 
 ## API 목록 및 예시
 
 ### API 문서
-http://localhost:8080/swagger-ui.html
+
+1. http://localhost:8080/swagger-ui.html
+``docker compose up``을 통해 서버를 구동 시킨 후 접속이 가능하며
+샘플 요청/응답을 확인할 수 있습니다.
+
+2. /docs/api-spec.json 파일을 활용
+해당 파일의 정보를 복사하여
+https://editor.swagger.io/
+페이지로 이동 후 좌측 창에 입력시
+서버를 구동하지 않고 api 명세 문서를 확인하실 수 있습니다.
 
 ---
-
-
 
 
 ## 데이터 모델 설명
@@ -122,7 +177,7 @@ http://localhost:8080/swagger-ui.html
 
 ``` SQL
 -- 정원 COUNT 쿼리 성능
-INDEX idx_enrollment_course_id (course_id)
+INDEX idx_enrollment_course_status_position (course_id, status, waitlist_position)
 
 -- 내 수강 신청 목록 조회
 INDEX idx_enrollment_user_id (user_id)
@@ -152,7 +207,7 @@ INDEX idx_course_status (status)
 ### Enrollment
 - id `BIGINT`: 수강 신청 고유 식별자
 - course_id `BIGINT`: 강의 고유 식별자 외래키
-- status `VARCHAR(20)`: 수강 신청 상태 (`PENDING`: 신청 완료, 결제 대기 /`CONFIRMED`: 결제 완료, 수강 확정 /`CANCELLED`: 취소됨)
+- status `VARCHAR(20)`: 수강 신청 상태 (`PENDING`: 신청 완료, 결제 대기 /`CONFIRMED`: 결제 완료, 수강 확정 /`CANCELLED`: 취소됨/`WAITING`: 대기중 )
 - confirmed_at `DATETIME`: 결제 확정 일자
 - cancelled_at `DATETIME`: 취소 일자
 - created_at `DATETIME`: 생성일시
@@ -164,16 +219,23 @@ INDEX idx_course_status (status)
 
 ## 테스트 실행 방법
 
-> 테스트 작성 후 추가 예정
+프로젝트 루트에 위치한 후
+```./gradlew test```
+입력
 
 ---
 
 ## 미구현 / 제약사항
 
-> 개발 완료 후 작성 예정
+1. PENDING 만료 처리 없음
+대기열 기능이 있지만 결제를 하지 않은 상태인 PENDING 수강 신청들에 대한 만료 기능이 미구현 상태입니다.
+@Scheduled 또는 배치 처리를 통해 일정 시간이 지난 PENDING 건을 
+자동 취소하고 대기열 다음 순번에게 자리를 넘기는 방식으로 해결할 수 있습니다.
 
 ---
 
 ## AI 활용 범위
 
-> 제출 전 작성 예정
+1. Docker, Docker compose 파일 구성
+2. API 문서화, README.md 초안 작성 및 첨삭
+3. 테스트 코드 생성 및 코드 리뷰
