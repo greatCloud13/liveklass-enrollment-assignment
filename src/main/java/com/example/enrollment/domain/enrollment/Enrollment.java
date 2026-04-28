@@ -1,6 +1,7 @@
 package com.example.enrollment.domain.enrollment;
 
 import com.example.enrollment.common.exception.EnrollmentCancelNotAllowedException;
+import com.example.enrollment.common.exception.EnrollmentStatusNotWaiting;
 import com.example.enrollment.common.exception.InvalidStatusTransitionException;
 import com.example.enrollment.domain.BaseEntity;
 import jakarta.persistence.*;
@@ -96,6 +97,12 @@ public class Enrollment extends BaseEntity {
         // 결제 확정 후 7일 후 당일을 포함하여 취소 가능
         return confirmedAt != null &&
                 !LocalDateTime.now().isAfter(confirmedAt.plusDays(7));
+    }
+
+    public void validateWaiting(){
+        if(this.status != EnrollmentStatus.WAITING){
+            throw new EnrollmentStatusNotWaiting(this.status);
+        }
     }
 
 }
