@@ -66,6 +66,10 @@ public class EnrollmentServiceTest {
 
     private Course course;
     private Enrollment enrollment;
+    private Enrollment pendingEnrollment;
+    private Enrollment confirmedEnrollment;
+    private Enrollment waitingEnrollment;
+
 
     @BeforeEach
     void setUp() {
@@ -85,6 +89,23 @@ public class EnrollmentServiceTest {
                 .userId(userId)
                 .build();
         ReflectionTestUtils.setField(enrollment, "id", enrollmentId);
+
+        pendingEnrollment = Enrollment.builder()
+                .courseId(courseId)
+                .userId(userId)
+                .build();
+        ReflectionTestUtils.setField(pendingEnrollment, "id", enrollmentId);
+
+        confirmedEnrollment = Enrollment.builder()
+                .courseId(courseId)
+                .userId(userId)
+                .build();
+        ReflectionTestUtils.setField(confirmedEnrollment, "id", 2L);
+        ReflectionTestUtils.setField(confirmedEnrollment, "status", EnrollmentStatus.CONFIRMED);
+        ReflectionTestUtils.setField(confirmedEnrollment, "confirmedAt", LocalDateTime.now());
+
+        waitingEnrollment = Enrollment.reserve(userId, courseId, 1);
+        ReflectionTestUtils.setField(waitingEnrollment, "id", 3L);
     }
 
     @Nested
@@ -244,58 +265,103 @@ public class EnrollmentServiceTest {
     class CancelTest {
 
         @Test
-        @DisplayName("PENDING 상태에서 취소 성공")
-        void cancel_success_fromPending() {
+        @DisplayName("CONFIRMED 취소 시 대기열 첫 번째 사람 PENDING 승격")
+        void cancel_confirmed_promotesWaiting() {
             // [Given]
-            given(enrollmentRepository.findByIdAndUserId(enrollmentId, userId)).willReturn(Optional.of(enrollment));
+            Enrollment waitingUser = Enrollment.reserve(userId + 1, courseId, 1);
+
+            given(enrollmentRepository.findByIdAndUserId(2L, userId))
+                    .willReturn(Optional.of(confirmedEnrollment));
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(
+                    courseId, EnrollmentStatus.WAITING))
+                    .willReturn(Optional.of(waitingUser));
+
+            // [When]
+            enrollmentService.cancel(2L, userId);
+
+            // [Then]
+            assertThat(confirmedEnrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+            assertThat(waitingUser.getStatus()).isEqualTo(EnrollmentStatus.PENDING);
+
+            verify(enrollmentRepository, times(1))
+                    .findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(courseId, EnrollmentStatus.WAITING);
+        }
+
+        @Test
+        @DisplayName("PENDING 취소 시 대기열 첫 번째 사람 PENDING 승격")
+        void cancel_pending_promotesWaiting() {
+            // [Given]
+            Enrollment waitingUser = Enrollment.reserve(userId + 1, courseId, 1);
+
+            given(enrollmentRepository.findByIdAndUserId(enrollmentId, userId))
+                    .willReturn(Optional.of(pendingEnrollment));
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(
+                    courseId, EnrollmentStatus.WAITING))
+                    .willReturn(Optional.of(waitingUser));
 
             // [When]
             enrollmentService.cancel(enrollmentId, userId);
 
             // [Then]
-            assertThat(enrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
-
-            verify(enrollmentRepository, times(1)).findByIdAndUserId(enrollmentId, userId);
+            assertThat(pendingEnrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+            assertThat(waitingUser.getStatus()).isEqualTo(EnrollmentStatus.PENDING);
         }
 
         @Test
-        @DisplayName("CONFIRMED 상태에서 7일 이내 취소 성공")
-        void cancel_success_fromConfirmedWithin7Days() {
+        @DisplayName("WAITING 취소 시 자리가 생기지 않으므로 대기열 승격 없음")
+        void cancel_waiting_noPromotion() {
             // [Given]
-            enrollment.confirm();
-            // confirmedAt이 방금 설정되었으므로 7일 이내
-            given(enrollmentRepository.findByIdAndUserId(enrollmentId, userId)).willReturn(Optional.of(enrollment));
+            given(enrollmentRepository.findByIdAndUserId(3L, userId))
+                    .willReturn(Optional.of(waitingEnrollment));
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
 
             // [When]
-            enrollmentService.cancel(enrollmentId, userId);
+            enrollmentService.cancel(3L, userId);
 
             // [Then]
-            assertThat(enrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+            assertThat(waitingEnrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+            verify(enrollmentRepository, never())
+                    .findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(any(), any());
         }
 
         @Test
-        @DisplayName("CONFIRMED 상태에서 7일 초과 시 예외 발생")
-        void cancel_fail_after7Days() {
+        @DisplayName("취소 후 대기열이 없는 경우 승격 없음")
+        void cancel_confirmed_noWaiting() {
             // [Given]
-            enrollment.confirm();
-            ReflectionTestUtils.setField(enrollment, "confirmedAt", LocalDateTime.now().minusDays(8));
-            given(enrollmentRepository.findByIdAndUserId(enrollmentId, userId)).willReturn(Optional.of(enrollment));
+            given(enrollmentRepository.findByIdAndUserId(2L, userId))
+                    .willReturn(Optional.of(confirmedEnrollment));
+            given(courseRepository.findByIdWithLock(courseId))
+                    .willReturn(Optional.of(course));
+            given(enrollmentRepository.findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(
+                    courseId, EnrollmentStatus.WAITING))
+                    .willReturn(Optional.empty());
 
-            // [When & Then]
-            assertThatThrownBy(() -> enrollmentService.cancel(enrollmentId, userId))
-                    .isInstanceOf(EnrollmentCancelNotAllowedException.class);
+            // [When]
+            enrollmentService.cancel(2L, userId);
+
+            // [Then]
+            assertThat(confirmedEnrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+            verify(enrollmentRepository, times(1))
+                    .findFirstByCourseIdAndStatusOrderByWaitlistPositionAsc(courseId, EnrollmentStatus.WAITING);
         }
 
         @Test
-        @DisplayName("수강 신청 내역을 찾지 못한 경우 예외 발생")
+        @DisplayName("수강신청을 찾지 못한 경우 예외 발생")
         void cancel_fail_enrollmentNotFound() {
             // [Given]
-            given(enrollmentRepository.findByIdAndUserId(enrollmentId, userId)).willReturn(Optional.empty());
+            given(enrollmentRepository.findByIdAndUserId(enrollmentId, userId))
+                    .willReturn(Optional.empty());
 
             // [When & Then]
             assertThatThrownBy(() -> enrollmentService.cancel(enrollmentId, userId))
-                    .isInstanceOf(EnrollmentNotFoundException.class)
-                    .hasMessage("수강 신청 내역을 찾을 수 없습니다.");
+                    .isInstanceOf(EnrollmentNotFoundException.class);
+
+            verify(courseRepository, never()).findByIdWithLock(any());
         }
     }
 
@@ -472,6 +538,94 @@ public class EnrollmentServiceTest {
                     .isInstanceOf(AlreadyEnrolledException.class);
 
             verify(enrollmentRepository, never()).save(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("getEnrollmentDetail() 기능 테스트")
+    class GetEnrollmentDetailTest {
+
+        @Test
+        @DisplayName("수강신청 상세 조회 성공")
+        void getEnrollmentDetail_success() {
+            // [Given]
+            given(enrollmentRepository.findById(enrollmentId))
+                    .willReturn(Optional.of(pendingEnrollment));
+
+            // [When]
+            EnrollmentResponse result = enrollmentService.getEnrollmentDetail(enrollmentId);
+
+            // [Then]
+            assertThat(result).isNotNull();
+            verify(enrollmentRepository, times(1)).findById(enrollmentId);
+        }
+
+        @Test
+        @DisplayName("수강신청을 찾지 못한 경우 예외 발생")
+        void getEnrollmentDetail_fail_notFound() {
+            // [Given]
+            given(enrollmentRepository.findById(enrollmentId))
+                    .willReturn(Optional.empty());
+
+            // [When & Then]
+            assertThatThrownBy(() -> enrollmentService.getEnrollmentDetail(enrollmentId))
+                    .isInstanceOf(EnrollmentNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("getMyReserveDetail() 기능 테스트")
+    class GetMyReserveDetailTest {
+
+        @Test
+        @DisplayName("WAITING 상태 대기열 상세 조회 성공")
+        void getMyReserveDetail_success() {
+            // [Given]
+            Enrollment waiting = Enrollment.reserve(userId, courseId, 3);
+            ReflectionTestUtils.setField(waiting, "id", enrollmentId);
+
+            given(enrollmentRepository.findById(enrollmentId))
+                    .willReturn(Optional.of(waiting));
+            given(enrollmentRepository.countUserWaitingOrder(courseId, 3, EnrollmentStatus.WAITING))
+                    .willReturn(2L); // 앞에 2명 → 순번 3번
+
+            // [When]
+            EnrollmentWithWaitCountResponse result = enrollmentService.getMyReserveDetail(enrollmentId);
+
+            // [Then]
+            assertThat(result).isNotNull();
+            assertThat(result.order()).isEqualTo(3L);
+
+            verify(enrollmentRepository, times(1))
+                    .countUserWaitingOrder(courseId, 3, EnrollmentStatus.WAITING);
+        }
+
+        @Test
+        @DisplayName("수강신청을 찾지 못한 경우 예외 발생")
+        void getMyReserveDetail_fail_notFound() {
+            // [Given]
+            given(enrollmentRepository.findById(enrollmentId))
+                    .willReturn(Optional.empty());
+
+            // [When & Then]
+            assertThatThrownBy(() -> enrollmentService.getMyReserveDetail(enrollmentId))
+                    .isInstanceOf(EnrollmentNotFoundException.class);
+
+            verify(enrollmentRepository, never()).countUserWaitingOrder(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("WAITING 상태가 아닌 경우 예외 발생")
+        void getMyReserveDetail_fail_notWaiting() {
+            // [Given]
+            given(enrollmentRepository.findById(enrollmentId))
+                    .willReturn(Optional.of(pendingEnrollment));
+
+            // [When & Then]
+            assertThatThrownBy(() -> enrollmentService.getMyReserveDetail(enrollmentId))
+                    .isInstanceOf(EnrollmentStatusNotWaiting.class);
+
+            verify(enrollmentRepository, never()).countUserWaitingOrder(any(), any(), any());
         }
     }
 }
