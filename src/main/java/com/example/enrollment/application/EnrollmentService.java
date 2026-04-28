@@ -119,24 +119,44 @@ public class EnrollmentService {
             throw new AlreadyEnrolledException();
         }
 
-
         boolean isFull = enrollmentRepository.countByCourseIdAndStatusIn(courseId, List.of(
                 EnrollmentStatus.PENDING, EnrollmentStatus.CONFIRMED))
                 >= course.getMaxCapacity();
 
-        int waitlistCount = isFull
-                ? enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId).orElse(0)
+        int myWaitlistPosition = isFull
+                ? enrollmentRepository.findMaxWaitlistPositionByCourseId(courseId).orElse(0) + 1
                 : 0;
 
         Enrollment enrollment = isFull
-                ? Enrollment.reserve(userId, courseId, waitlistCount + 1)
+                ? Enrollment.reserve(userId, courseId, myWaitlistPosition)
                 : Enrollment.builder().courseId(courseId).userId(userId).build();
 
         Long order = isFull
-                ? enrollmentRepository.countUserWaitingOrder(courseId, waitlistCount + 1, EnrollmentStatus.WAITING) + 1
+                ? enrollmentRepository.countUserWaitingOrder(courseId, myWaitlistPosition, EnrollmentStatus.WAITING) + 1
                 : 0L;
 
         enrollmentRepository.save(enrollment);
+
+        return EnrollmentWithWaitCountResponse.from(enrollment, order);
+    }
+
+    public EnrollmentResponse getEnrollmentDetail(Long enrollmentId){
+
+        Enrollment enrollment = enrollmentRepository.findById(enrollmentId)
+                .orElseThrow(EnrollmentNotFoundException :: new);
+
+        return EnrollmentResponse.from(enrollment);
+    }
+
+    public EnrollmentWithWaitCountResponse getMyReserveDetail(Long enrollmentId){
+
+//      사용자 인증 로직은 제외
+        Enrollment enrollment = enrollmentRepository.findById(enrollmentId)
+                .orElseThrow(EnrollmentNotFoundException :: new);
+
+        enrollment.validateWaiting();
+
+        Long order = enrollmentRepository.countUserWaitingOrder(enrollment.getCourseId(), enrollment.getWaitlistPosition(), EnrollmentStatus.WAITING) + 1;
 
         return EnrollmentWithWaitCountResponse.from(enrollment, order);
     }

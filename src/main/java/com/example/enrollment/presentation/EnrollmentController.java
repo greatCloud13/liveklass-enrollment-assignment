@@ -32,6 +32,20 @@ public class EnrollmentController {
 
     private final EnrollmentService enrollmentService;
 
+    @Operation(summary = "수강신청 정보 상세조회", description = "대기열에 등록된 신청정보를 조회합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "404", description = "수강 신청 내역을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+    })
+    @GetMapping("/detail")
+    public ResponseEntity<EnrollmentResponse> getEnrollmentDetail(@RequestHeader("X-User-Id") Long userId,
+                                                                  @RequestParam Long enrollmentId){
+
+        EnrollmentResponse result = enrollmentService.getEnrollmentDetail(enrollmentId);
+
+        return ResponseEntity.ok(result);
+    }
+
     @Operation(summary = "수강 신청", description = "PENDING 상태로 수강 신청을 생성합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "생성 성공 — Location 헤더에 리소스 URI 포함"),
@@ -127,11 +141,26 @@ public class EnrollmentController {
 
         URI location = ServletUriComponentsBuilder
                 .fromCurrentContextPath()
-                .path("/api/v1/enrollments/{id}")
+                .path("/api/v1/enrollments/reserve/{id}")
                 .buildAndExpand(result.id())
                 .toUri();
 
         return ResponseEntity.created(location).body(result);
+    }
+
+    @Operation(summary = "대기열에 등록된 정보 상세조회", description = "대기열에 등록된 신청정보를 조회합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "404", description = "수강 신청 내역을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "수강 대기 상태가 아님",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/reserve")
+    public ResponseEntity<EnrollmentWithWaitCountResponse> getMyReserveDetail(@RequestHeader("X-User-Id") Long userId,
+                                                                              @RequestParam Long enrollmentId ){
+        EnrollmentWithWaitCountResponse result = enrollmentService.getMyReserveDetail(enrollmentId);
+
+        return ResponseEntity.ok(result);
     }
 
 }

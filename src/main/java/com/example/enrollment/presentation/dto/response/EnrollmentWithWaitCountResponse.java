@@ -21,6 +21,9 @@ public record EnrollmentWithWaitCountResponse(
         @Schema(description = "요청 상태", example = "PENDING")
         EnrollmentStatus status,
 
+        @Schema(description = "대기 신청 일시", example = "2025-05-02")
+        LocalDateTime createdAt,
+
         @Schema(description = "현재 대기 순번", example = "1")
         Long order
 ){
@@ -31,6 +34,7 @@ public record EnrollmentWithWaitCountResponse(
                 enrollment.getUserId(),
                 enrollment.getCourseId(),
                 enrollment.getStatus(),
+                enrollment.getCreatedAt(),
                 order
         );
 
